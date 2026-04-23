@@ -15,6 +15,39 @@ client = AzureOpenAI(
     api_version="2025-04-01-preview",
 )
 DEPLOYMENT = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
+LLM_DEPLOYMENT = "gpt-5.4"
+
+REFINE_SYSTEM_PROMPT = """You are an expert prompt engineer for the gpt-image-2 image generation model.
+
+Your job is to take the user's image prompt and produce an improved, highly detailed version that will yield a better image. You must:
+
+1. **Plan layout**: Decide composition, perspective, framing, and spatial arrangement of elements.
+2. **Specify typography**: If the image contains text, specify font style (serif, sans-serif, handwritten, etc.), weight, size relative to the image, colour, and placement.
+3. **Enrich details**: Add art style, lighting, colour palette, mood, and texture descriptions.
+4. **Research when needed**: If the prompt references real people, places, events, brands, trending topics, or anything that benefits from up-to-date or deeper factual information, search the internet to get accurate details and incorporate them.
+5. **Preserve intent**: Never change the user's core idea. Only enhance it.
+
+Return ONLY the refined prompt text. No explanations, no markdown fences, no preamble."""
+
+
+def refine_prompt(user_prompt: str, mode: str = "generate") -> str:
+    """Call gpt-5.4 with thinking + web search to refine an image prompt."""
+    context = (
+        "I want to GENERATE a new image."
+        if mode == "generate"
+        else "I want to EDIT an existing image."
+    )
+    response = client.responses.create(
+        model=LLM_DEPLOYMENT,
+        input=[
+            {"role": "developer", "content": REFINE_SYSTEM_PROMPT},
+            {"role": "user", "content": f"{context}\n\nMy prompt:\n{user_prompt}"},
+        ],
+        tools=[{"type": "web_search_preview"}],
+        reasoning={"effort": "medium"},
+    )
+    return response.output_text
+
 
 # ---------------------------------------------------------------------------
 # Size / quality helpers
@@ -81,6 +114,7 @@ tab_gen, tab_edit = st.tabs(["Generate", "Edit"])
 
 with tab_gen:
     prompt = st.text_area("Prompt", height=120, key="gen_prompt")
+    use_refine = st.toggle("✨ Refine prompt with GPT-5.4", value=True, key="gen_refine")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -104,11 +138,20 @@ with tab_gen:
             if err:
                 st.error(err)
             else:
+                final_prompt = prompt
+                if use_refine:
+                    with st.spinner("Refining prompt with GPT-5.4 (thinking + web search)…"):
+                        try:
+                            final_prompt = refine_prompt(prompt, mode="generate")
+                            st.session_state.gen_refined_prompt = final_prompt
+                        except Exception as exc:
+                            st.warning(f"Prompt refinement failed, using original: {exc}")
+
                 with st.spinner("Generating image…"):
                     try:
                         result = client.images.generate(
                             model=DEPLOYMENT,
-                            prompt=prompt,
+                            prompt=final_prompt,
                             size=size_str,
                             quality=quality,
                             n=1,
@@ -119,6 +162,10 @@ with tab_gen:
                         st.session_state.gen_fname = f"generated_{datetime.now():%Y%m%d_%H%M%S}.png"
                     except Exception as exc:
                         st.error(f"Generation failed: {exc}")
+
+    if st.session_state.get("gen_refined_prompt"):
+        with st.expander("🔍 Refined prompt", expanded=False):
+            st.markdown(st.session_state.gen_refined_prompt)
 
     if st.session_state.gen_result is not None:
         st.image(st.session_state.gen_result, use_container_width=True)
@@ -135,6 +182,7 @@ with tab_gen:
             if st.button("🔄 Start over", key="gen_reset"):
                 st.session_state.gen_result = None
                 st.session_state.gen_fname = None
+                st.session_state.gen_refined_prompt = None
                 st.rerun()
 
 # ---- Edit tab -------------------------------------------------------------
@@ -171,6 +219,8 @@ with tab_edit:
         with cc2e:
             custom_he = st.number_input("Height (px)", min_value=16, step=16, value=1024, key="edit_ch")
 
+    use_refine_e = st.toggle("✨ Refine prompt with GPT-5.4", value=True, key="edit_refine")
+
     if st.button("Edit image", type="primary", key="edit_btn"):
         if not edit_prompt.strip():
             st.warning("Please enter an edit prompt.")
@@ -181,6 +231,15 @@ with tab_edit:
             if err_e:
                 st.error(err_e)
             else:
+                final_edit_prompt = edit_prompt
+                if use_refine_e:
+                    with st.spinner("Refining prompt with GPT-5.4 (thinking + web search)…"):
+                        try:
+                            final_edit_prompt = refine_prompt(edit_prompt, mode="edit")
+                            st.session_state.edit_refined_prompt = final_edit_prompt
+                        except Exception as exc:
+                            st.warning(f"Prompt refinement failed, using original: {exc}")
+
                 with st.spinner("Editing image…"):
                     try:
                         image_inputs = []
@@ -192,7 +251,7 @@ with tab_edit:
                         result = client.images.edit(
                             model=DEPLOYMENT,
                             image=image_inputs if len(image_inputs) > 1 else image_inputs[0],
-                            prompt=edit_prompt,
+                            prompt=final_edit_prompt,
                             size=size_str_e,
                             quality=quality_e,
                             n=1,
@@ -203,6 +262,10 @@ with tab_edit:
                         st.session_state.edit_fname = f"edited_{datetime.now():%Y%m%d_%H%M%S}.png"
                     except Exception as exc:
                         st.error(f"Edit failed: {exc}")
+
+    if st.session_state.get("edit_refined_prompt"):
+        with st.expander("🔍 Refined prompt", expanded=False):
+            st.markdown(st.session_state.edit_refined_prompt)
 
     if st.session_state.edit_result is not None:
         st.image(st.session_state.edit_result, use_container_width=True)
@@ -219,4 +282,5 @@ with tab_edit:
             if st.button("🔄 Start over", key="edit_reset"):
                 st.session_state.edit_result = None
                 st.session_state.edit_fname = None
+                st.session_state.edit_refined_prompt = None
                 st.rerun()
