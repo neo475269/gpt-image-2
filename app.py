@@ -70,6 +70,11 @@ def _resolve_size(choice: str, custom_w: int, custom_h: int):
 st.set_page_config(page_title="GPT-Image-2", page_icon="🎨", layout="centered")
 st.title("🎨 GPT-Image-2 — Generate & Edit")
 
+# Persist results across reruns
+for _key in ("gen_result", "gen_fname", "edit_result", "edit_fname"):
+    if _key not in st.session_state:
+        st.session_state[_key] = None
+
 tab_gen, tab_edit = st.tabs(["Generate", "Edit"])
 
 # ---- Generate tab --------------------------------------------------------
@@ -110,28 +115,47 @@ with tab_gen:
                         )
                         img_b64 = result.data[0].b64_json
                         img_bytes = base64.b64decode(img_b64)
-
-                        st.image(img_bytes, use_container_width=True)
-
-                        fname = f"generated_{datetime.now():%Y%m%d_%H%M%S}.png"
-                        st.download_button(
-                            "⬇️ Download",
-                            data=img_bytes,
-                            file_name=fname,
-                            mime="image/png",
-                        )
+                        st.session_state.gen_result = img_bytes
+                        st.session_state.gen_fname = f"generated_{datetime.now():%Y%m%d_%H%M%S}.png"
                     except Exception as exc:
                         st.error(f"Generation failed: {exc}")
+
+    if st.session_state.gen_result is not None:
+        st.image(st.session_state.gen_result, use_container_width=True)
+        c1, c2 = st.columns(2)
+        with c1:
+            st.download_button(
+                "⬇️ Download",
+                data=st.session_state.gen_result,
+                file_name=st.session_state.gen_fname,
+                mime="image/png",
+                key="gen_dl",
+            )
+        with c2:
+            if st.button("🔄 Start over", key="gen_reset"):
+                st.session_state.gen_result = None
+                st.session_state.gen_fname = None
+                st.rerun()
 
 # ---- Edit tab -------------------------------------------------------------
 
 with tab_edit:
     edit_prompt = st.text_area("Edit prompt", height=120, key="edit_prompt")
-    uploaded = st.file_uploader(
-        "Upload source image (PNG)",
+    uploaded_files = st.file_uploader(
+        "Upload source images (PNG, up to 10)",
         type=["png"],
+        accept_multiple_files=True,
         key="edit_upload",
     )
+
+    if uploaded_files:
+        if len(uploaded_files) > 10:
+            st.warning("Maximum 10 images allowed. Only the first 10 will be used.")
+            uploaded_files = uploaded_files[:10]
+        cols = st.columns(min(len(uploaded_files), 5))
+        for i, f in enumerate(uploaded_files):
+            with cols[i % len(cols)]:
+                st.image(f, caption=f.name, use_container_width=True)
 
     col1e, col2e = st.columns(2)
     with col1e:
@@ -150,8 +174,8 @@ with tab_edit:
     if st.button("Edit image", type="primary", key="edit_btn"):
         if not edit_prompt.strip():
             st.warning("Please enter an edit prompt.")
-        elif uploaded is None:
-            st.warning("Please upload a source image.")
+        elif not uploaded_files:
+            st.warning("Please upload at least one source image.")
         else:
             size_str_e, err_e = _resolve_size(size_choice_e, custom_we, custom_he)
             if err_e:
@@ -159,12 +183,15 @@ with tab_edit:
             else:
                 with st.spinner("Editing image…"):
                     try:
-                        img_file = io.BytesIO(uploaded.getvalue())
-                        img_file.name = uploaded.name
+                        image_inputs = []
+                        for f in uploaded_files:
+                            buf = io.BytesIO(f.getvalue())
+                            buf.name = f.name
+                            image_inputs.append(buf)
 
                         result = client.images.edit(
                             model=DEPLOYMENT,
-                            image=img_file,
+                            image=image_inputs if len(image_inputs) > 1 else image_inputs[0],
                             prompt=edit_prompt,
                             size=size_str_e,
                             quality=quality_e,
@@ -172,15 +199,24 @@ with tab_edit:
                         )
                         img_b64 = result.data[0].b64_json
                         img_bytes = base64.b64decode(img_b64)
-
-                        st.image(img_bytes, use_container_width=True)
-
-                        fname = f"edited_{datetime.now():%Y%m%d_%H%M%S}.png"
-                        st.download_button(
-                            "⬇️ Download",
-                            data=img_bytes,
-                            file_name=fname,
-                            mime="image/png",
-                        )
+                        st.session_state.edit_result = img_bytes
+                        st.session_state.edit_fname = f"edited_{datetime.now():%Y%m%d_%H%M%S}.png"
                     except Exception as exc:
                         st.error(f"Edit failed: {exc}")
+
+    if st.session_state.edit_result is not None:
+        st.image(st.session_state.edit_result, use_container_width=True)
+        c1e, c2e = st.columns(2)
+        with c1e:
+            st.download_button(
+                "⬇️ Download",
+                data=st.session_state.edit_result,
+                file_name=st.session_state.edit_fname,
+                mime="image/png",
+                key="edit_dl",
+            )
+        with c2e:
+            if st.button("🔄 Start over", key="edit_reset"):
+                st.session_state.edit_result = None
+                st.session_state.edit_fname = None
+                st.rerun()
