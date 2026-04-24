@@ -53,16 +53,22 @@ def refine_prompt(user_prompt: str, mode: str = "generate") -> str:
 # Size / quality helpers
 # ---------------------------------------------------------------------------
 
-POPULAR_SIZES = [
-    "auto",
-    "1024x1024",
-    "1536x1024",
-    "1024x1536",
-    "2048x2048",
-    "2048x1152",
-    "3840x2160",
-    "2160x3840",
-]
+SIZE_PRESETS = {
+    "Auto": "auto",
+    "1K Square (1024×1024)": "1024x1024",
+    "1K × 1.5K Portrait (1024×1536)": "1024x1536",
+    "1.5K × 1K Landscape (1536×1024)": "1536x1024",
+    "2K Square (2048×2048)": "2048x2048",
+    "2K Portrait 3:4 (1536×2048)": "1536x2048",
+    "2K Portrait 9:16 (1152×2048)": "1152x2048",
+    "2K Landscape 3:4 (2048×1536)": "2048x1536",
+    "2K Landscape 9:16 (2048×1152)": "2048x1152",
+    "4K Square (2880×2880)": "2880x2880",
+    "4K Portrait 3:4 (2304×3072)": "2304x3072",
+    "4K Portrait 9:16 (2160×3840)": "2160x3840",
+    "4K Landscape 3:4 (3072×2304)": "3072x2304",
+    "4K Landscape 9:16 (3840×2160)": "3840x2160",
+}
 
 QUALITY_OPTIONS = ["auto", "low", "medium", "high"]
 
@@ -88,12 +94,12 @@ def _validate_custom_size(w: int, h: int) -> str | None:
 
 def _resolve_size(choice: str, custom_w: int, custom_h: int):
     """Return the size string and any validation error."""
-    if choice != "custom":
-        return choice, None
-    err = _validate_custom_size(custom_w, custom_h)
-    if err:
-        return None, err
-    return f"{custom_w}x{custom_h}", None
+    if choice == "Custom":
+        err = _validate_custom_size(custom_w, custom_h)
+        if err:
+            return None, err
+        return f"{custom_w}x{custom_h}", None
+    return SIZE_PRESETS[choice], None
 
 
 # ---------------------------------------------------------------------------
@@ -118,12 +124,12 @@ with tab_gen:
 
     col1, col2 = st.columns(2)
     with col1:
-        size_choice = st.selectbox("Size", POPULAR_SIZES + ["custom"], key="gen_size")
+        size_choice = st.selectbox("Size", list(SIZE_PRESETS.keys()) + ["Custom"], key="gen_size")
     with col2:
         quality = st.selectbox("Quality", QUALITY_OPTIONS, key="gen_quality")
 
     custom_w, custom_h = 1024, 1024
-    if size_choice == "custom":
+    if size_choice == "Custom":
         cc1, cc2 = st.columns(2)
         with cc1:
             custom_w = st.number_input("Width (px)", min_value=16, step=16, value=1024, key="gen_cw")
@@ -207,12 +213,12 @@ with tab_edit:
 
     col1e, col2e = st.columns(2)
     with col1e:
-        size_choice_e = st.selectbox("Size", POPULAR_SIZES + ["custom"], key="edit_size")
+        size_choice_e = st.selectbox("Size", list(SIZE_PRESETS.keys()) + ["Custom"], key="edit_size")
     with col2e:
         quality_e = st.selectbox("Quality", QUALITY_OPTIONS, key="edit_quality")
 
     custom_we, custom_he = 1024, 1024
-    if size_choice_e == "custom":
+    if size_choice_e == "Custom":
         cc1e, cc2e = st.columns(2)
         with cc1e:
             custom_we = st.number_input("Width (px)", min_value=16, step=16, value=1024, key="edit_cw")
