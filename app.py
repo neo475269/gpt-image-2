@@ -21,8 +21,13 @@ def get_client() -> OpenAI:
 
 
 client = get_client()
-DEPLOYMENT = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
+DEPLOYMENT_FAST = st.secrets["AZURE_OPENAI_DEPLOYMENT_FAST"]
+DEPLOYMENT_QUALITY = st.secrets["AZURE_OPENAI_DEPLOYMENT_QUALITY"]
 LLM_DEPLOYMENT = "gpt-6-astra"
+GENERATION_MODELS = {
+    "Fast": DEPLOYMENT_FAST,
+    "Quality": DEPLOYMENT_QUALITY,
+}
 
 REFINE_SYSTEM_PROMPT = """You are an expert prompt engineer for the GPT Image 2.5 image generation model.
 
@@ -126,6 +131,10 @@ tab_gen, tab_edit = st.tabs(["Generate", "Edit"])
 # ---- Generate tab --------------------------------------------------------
 
 with tab_gen:
+    generation_mode = st.radio("Generation mode", ["Fast", "Quality"], horizontal=True, key="gen_mode")
+    selected_generation_model = GENERATION_MODELS[generation_mode]
+    st.caption(f"Using deployment: {selected_generation_model}")
+
     prompt = st.text_area("Prompt", height=120, key="gen_prompt")
     use_refine = st.toggle("✨ Refine prompt with gpt-6-astra", value=True, key="gen_refine")
 
@@ -163,7 +172,7 @@ with tab_gen:
                 with st.spinner("Generating image…"):
                     try:
                         result = client.images.generate(
-                            model=DEPLOYMENT,
+                            model=selected_generation_model,
                             prompt=final_prompt,
                             size=size_str,
                             quality=quality,
@@ -202,6 +211,10 @@ with tab_gen:
 # ---- Edit tab -------------------------------------------------------------
 
 with tab_edit:
+    edit_generation_mode = st.radio("Generation mode", ["Fast", "Quality"], horizontal=True, key="edit_mode")
+    selected_edit_model = GENERATION_MODELS[edit_generation_mode]
+    st.caption(f"Using deployment: {selected_edit_model}")
+
     edit_prompt = st.text_area("Edit prompt", height=120, key="edit_prompt")
     uploaded_files = st.file_uploader(
         "Upload source images (PNG, up to 10)",
@@ -263,7 +276,7 @@ with tab_edit:
                             image_inputs.append(buf)
 
                         result = client.images.edit(
-                            model=DEPLOYMENT,
+                            model=selected_edit_model,
                             image=image_inputs if len(image_inputs) > 1 else image_inputs[0],
                             prompt=final_edit_prompt,
                             size=size_str_e,
