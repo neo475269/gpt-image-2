@@ -3,21 +3,28 @@ import io
 from datetime import datetime
 
 import streamlit as st
-from openai import AzureOpenAI
+from openai import OpenAI
 
 # ---------------------------------------------------------------------------
-# Azure OpenAI client
+# Azure AI Foundry / Azure OpenAI client
 # ---------------------------------------------------------------------------
 
-client = AzureOpenAI(
-    api_key=st.secrets["AZURE_OPENAI_API_KEY"],
-    azure_endpoint=st.secrets["AZURE_OPENAI_ENDPOINT"],
-    api_version="2025-04-01-preview",
-)
+
+def get_client() -> OpenAI:
+    """Create the OpenAI client using the same base_url pattern as the GPT Image 2.5 notebook."""
+    endpoint = st.secrets["AZURE_OPENAI_ENDPOINT"].rstrip("/")
+    base_url = endpoint if endpoint.endswith("/openai/v1") else f"{endpoint}/openai/v1"
+    return OpenAI(
+        api_key=st.secrets["AZURE_OPENAI_API_KEY"],
+        base_url=base_url,
+    )
+
+
+client = get_client()
 DEPLOYMENT = st.secrets["AZURE_OPENAI_DEPLOYMENT"]
-LLM_DEPLOYMENT = "gpt-5.4"
+LLM_DEPLOYMENT = "gpt-6-astra"
 
-REFINE_SYSTEM_PROMPT = """You are an expert prompt engineer for the gpt-image-2 image generation model.
+REFINE_SYSTEM_PROMPT = """You are an expert prompt engineer for the GPT Image 2.5 image generation model.
 
 Your job is to take the user's image prompt and produce an improved, highly detailed version that will yield a better image. You must:
 
@@ -31,7 +38,7 @@ Return ONLY the refined prompt text. No explanations, no markdown fences, no pre
 
 
 def refine_prompt(user_prompt: str, mode: str = "generate") -> str:
-    """Call gpt-5.4 with thinking + web search to refine an image prompt."""
+    """Refine the prompt with the gpt-6-astra model using the Responses API."""
     context = (
         "I want to GENERATE a new image."
         if mode == "generate"
@@ -70,7 +77,7 @@ SIZE_PRESETS = {
     "4K Landscape 9:16 (3840×2160)": "3840x2160",
 }
 
-QUALITY_OPTIONS = ["auto", "low", "medium", "high"]
+QUALITY_OPTIONS = ["auto", "low", "medium", "high", "standard", "hd"]
 
 
 def _validate_custom_size(w: int, h: int) -> str | None:
@@ -106,8 +113,8 @@ def _resolve_size(choice: str, custom_w: int, custom_h: int):
 # UI
 # ---------------------------------------------------------------------------
 
-st.set_page_config(page_title="GPT-Image-2", page_icon="🎨", layout="centered")
-st.title("🎨 GPT-Image-2 — Generate & Edit")
+st.set_page_config(page_title="GPT-Image-2.5", page_icon="🎨", layout="centered")
+st.title("🎨 GPT-Image-2.5 + gpt-6-astra — Generate & Edit")
 
 # Persist results across reruns
 for _key in ("gen_result", "gen_fname", "edit_result", "edit_fname"):
@@ -120,7 +127,7 @@ tab_gen, tab_edit = st.tabs(["Generate", "Edit"])
 
 with tab_gen:
     prompt = st.text_area("Prompt", height=120, key="gen_prompt")
-    use_refine = st.toggle("✨ Refine prompt with GPT-5.4", value=True, key="gen_refine")
+    use_refine = st.toggle("✨ Refine prompt with gpt-6-astra", value=True, key="gen_refine")
 
     col1, col2 = st.columns(2)
     with col1:
@@ -146,7 +153,7 @@ with tab_gen:
             else:
                 final_prompt = prompt
                 if use_refine:
-                    with st.spinner("Refining prompt with GPT-5.4 (thinking + web search)…"):
+                    with st.spinner("Refining prompt with gpt-6-astra (thinking + web search)…"):
                         try:
                             final_prompt = refine_prompt(prompt, mode="generate")
                             st.session_state.gen_refined_prompt = final_prompt
@@ -160,6 +167,7 @@ with tab_gen:
                             prompt=final_prompt,
                             size=size_str,
                             quality=quality,
+                            background="auto",
                             n=1,
                         )
                         img_b64 = result.data[0].b64_json
@@ -174,7 +182,7 @@ with tab_gen:
             st.markdown(st.session_state.gen_refined_prompt)
 
     if st.session_state.gen_result is not None:
-        st.image(st.session_state.gen_result, use_container_width=True)
+        st.image(st.session_state.gen_result, width="stretch")
         c1, c2 = st.columns(2)
         with c1:
             st.download_button(
@@ -209,7 +217,7 @@ with tab_edit:
         cols = st.columns(min(len(uploaded_files), 5))
         for i, f in enumerate(uploaded_files):
             with cols[i % len(cols)]:
-                st.image(f, caption=f.name, use_container_width=True)
+                st.image(f, caption=f.name, width="stretch")
 
     col1e, col2e = st.columns(2)
     with col1e:
@@ -225,7 +233,7 @@ with tab_edit:
         with cc2e:
             custom_he = st.number_input("Height (px)", min_value=16, step=16, value=1024, key="edit_ch")
 
-    use_refine_e = st.toggle("✨ Refine prompt with GPT-5.4", value=True, key="edit_refine")
+    use_refine_e = st.toggle("✨ Refine prompt with gpt-6-astra", value=True, key="edit_refine")
 
     if st.button("Edit image", type="primary", key="edit_btn"):
         if not edit_prompt.strip():
@@ -239,7 +247,7 @@ with tab_edit:
             else:
                 final_edit_prompt = edit_prompt
                 if use_refine_e:
-                    with st.spinner("Refining prompt with GPT-5.4 (thinking + web search)…"):
+                    with st.spinner("Refining prompt with gpt-6-astra (thinking + web search)…"):
                         try:
                             final_edit_prompt = refine_prompt(edit_prompt, mode="edit")
                             st.session_state.edit_refined_prompt = final_edit_prompt
@@ -260,6 +268,7 @@ with tab_edit:
                             prompt=final_edit_prompt,
                             size=size_str_e,
                             quality=quality_e,
+                            background="auto",
                             n=1,
                         )
                         img_b64 = result.data[0].b64_json
@@ -274,7 +283,7 @@ with tab_edit:
             st.markdown(st.session_state.edit_refined_prompt)
 
     if st.session_state.edit_result is not None:
-        st.image(st.session_state.edit_result, use_container_width=True)
+        st.image(st.session_state.edit_result, width="stretch")
         c1e, c2e = st.columns(2)
         with c1e:
             st.download_button(
